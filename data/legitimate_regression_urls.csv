@@ -1,0 +1,16 @@
+﻿url,label,test_category
+https://example.com/login,legitimate,login_path
+https://example.com/search?q=secure,legitimate,search_parameter
+https://github.com/user/repo,legitimate,nested_path
+https://www.paypal.com/,legitimate,protected_brand
+https://example.com/path@home,legitimate,at_symbol_in_path
+https://docs.python.org/3/,legitimate,multiple_subdomains
+https://example.com/?account=123,legitimate,keyword_in_query
+https://example.com/verify,legitimate,keyword_in_path
+https://www.google.com/search?q=login,legitimate,keyword_in_query
+https://support.microsoft.com/account,legitimate,brand_subdomain
+https://example.com/products?id=123&category=secure,legitimate,multiple_query_parameters
+http://example.com/,legitimate,http_scheme
+https://shop.example.com/products,legitimate,subdomain_and_path
+https://www.amazon.com/gp/cart/view.html,legitimate,brand_path
+https://example.com/profile?next=/login,legitimate,nested_query_path

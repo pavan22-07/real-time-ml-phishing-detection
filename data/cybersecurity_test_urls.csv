@@ -1,0 +1,15 @@
+﻿url,label,attack_type
+https://www.wikipedia.org/,legitimate,normal
+https://www.python.org/,legitimate,normal
+https://www.google.com/,legitimate,normal
+https://www.microsoft.com/,legitimate,normal
+https://www.github.com/,legitimate,normal
+http://192.0.2.1/login,phishing,ip_address
+https://paypal.com.evil-site.com/login,phishing,brand_impersonation
+https://paypa1.com/verify,phishing,typosquatting
+https://g00gle.com/account,phishing,typosquatting
+https://secure-login-account.example.com/verify,phishing,suspicious_keywords
+https://example.com/%256c%256f%2567%2569%256e,phishing,nested_encoding
+https://example.com/%ZZ,phishing,malformed_encoding
+https://xn--ypal-43d9g.com/,phishing,idn_homograph
+https://example.com@evil-site.com/login,phishing,at_symbol
