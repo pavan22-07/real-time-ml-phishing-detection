@@ -7,11 +7,18 @@ from pathlib import Path
 
 import requests
 
-from threat_intel import (
-    FEED_DIR,
-    OPENPHISH_FILE,
-    METADATA_FILE
-)
+if __package__:
+    from .threat_intel import (
+        FEED_DIR,
+        OPENPHISH_FILE,
+        METADATA_FILE
+    )
+else:
+    from threat_intel import (
+        FEED_DIR,
+        OPENPHISH_FILE,
+        METADATA_FILE
+    )
 
 
 OPENPHISH_URL = "https://openphish.com/feed.txt"

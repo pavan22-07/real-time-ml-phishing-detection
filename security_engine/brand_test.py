@@ -1,5 +1,9 @@
-from url_analyzer import analyze_url
-from rule_engine import check_brand_impersonation
+if __package__:
+    from .url_analyzer import analyze_url
+    from .rule_engine import check_brand_impersonation
+else:
+    from url_analyzer import analyze_url
+    from rule_engine import check_brand_impersonation
 
 test_urls = [
     "https://paypal.com",

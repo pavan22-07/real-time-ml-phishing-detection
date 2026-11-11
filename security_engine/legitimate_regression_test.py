@@ -3,7 +3,10 @@ import csv
 import unittest
 from pathlib import Path
 
-from security_validation_test import scan_static_url
+if __package__:
+    from .security_validation_test import scan_static_url
+else:
+    from security_validation_test import scan_static_url
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

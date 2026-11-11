@@ -1,13 +1,22 @@
 
 import unittest
 
-from rule_engine import (
-    evaluate_security_rules,
-    run_security_rules,
-    check_brand_impersonation,
-    check_idn_homograph,
-    check_redirect_behavior
-)
+if __package__:
+    from .rule_engine import (
+        evaluate_security_rules,
+        run_security_rules,
+        check_brand_impersonation,
+        check_idn_homograph,
+        check_redirect_behavior
+    )
+else:
+    from rule_engine import (
+        evaluate_security_rules,
+        run_security_rules,
+        check_brand_impersonation,
+        check_idn_homograph,
+        check_redirect_behavior
+    )
 
 
 class RuleEngineTests(unittest.TestCase):

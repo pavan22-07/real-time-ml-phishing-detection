@@ -1,4 +1,7 @@
-from security_validation_test import scan_static_url
+if __package__:
+    from .security_validation_test import scan_static_url
+else:
+    from security_validation_test import scan_static_url
 
 test_urls = [
     "https://secure-login-account.example.com/verify",

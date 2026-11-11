@@ -1,6 +1,10 @@
 
-from url_analyzer import analyze_url
-from rule_engine import check_idn_homograph, run_security_rules
+if __package__:
+    from .url_analyzer import analyze_url
+    from .rule_engine import check_idn_homograph, run_security_rules
+else:
+    from url_analyzer import analyze_url
+    from rule_engine import check_idn_homograph, run_security_rules
 
 test_urls = [
     "https://paypal.com",

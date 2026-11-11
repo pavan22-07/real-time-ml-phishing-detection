@@ -1,6 +1,9 @@
 
 import unittest
-from url_analyzer import analyze_url
+if __package__:
+    from .url_analyzer import analyze_url
+else:
+    from url_analyzer import analyze_url
 
 
 class URLCredentialTests(unittest.TestCase):

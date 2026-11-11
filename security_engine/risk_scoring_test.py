@@ -1,12 +1,20 @@
 
 import unittest
 
-from risk_scoring import (
-    calculate_risk_score,
-    get_risk_level,
-    get_security_action,
-    assess_risk
-)
+if __package__:
+    from .risk_scoring import (
+        calculate_risk_score,
+        get_risk_level,
+        get_security_action,
+        assess_risk
+    )
+else:
+    from risk_scoring import (
+        calculate_risk_score,
+        get_risk_level,
+        get_security_action,
+        assess_risk
+    )
 
 
 class RiskScoringTests(unittest.TestCase):

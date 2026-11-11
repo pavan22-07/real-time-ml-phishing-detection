@@ -3,10 +3,16 @@ import csv
 import unittest
 from pathlib import Path
 
-from url_analyzer import analyze_url
-from rule_engine import run_security_rules
-from risk_scoring import assess_risk
-from decision_engine import determine_decision
+if __package__:
+    from .url_analyzer import analyze_url
+    from .rule_engine import run_security_rules
+    from .risk_scoring import assess_risk
+    from .decision_engine import determine_decision
+else:
+    from url_analyzer import analyze_url
+    from rule_engine import run_security_rules
+    from risk_scoring import assess_risk
+    from decision_engine import determine_decision
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

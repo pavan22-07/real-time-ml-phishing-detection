@@ -1,7 +1,10 @@
 
 import unittest
 
-from decision_engine import determine_decision
+if __package__:
+    from .decision_engine import determine_decision
+else:
+    from decision_engine import determine_decision
 
 
 class DecisionEngineTests(unittest.TestCase):

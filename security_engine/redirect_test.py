@@ -1,5 +1,8 @@
 
-from redirect_analyzer import analyze_redirects
+if __package__:
+    from .redirect_analyzer import analyze_redirects
+else:
+    from redirect_analyzer import analyze_redirects
 
 test_cases = [
     {
@@ -28,22 +31,28 @@ test_cases = [
     }
 ]
 
-for test in test_cases:
+def run_redirect_tests():
+    """Run manual redirect inspection checks across all configured test cases."""
+    for test in test_cases:
 
-    print("\n" + "=" * 65)
-    print("TEST:", test["name"])
-    print("URL:", test["url"])
+        print("\n" + "=" * 65)
+        print("TEST:", test["name"])
+        print("URL:", test["url"])
 
-    try:
-        result = analyze_redirects(test["url"])
+        try:
+            result = analyze_redirects(test["url"])
 
-        print("Redirect count:", result["redirect_count"])
-        print("Final URL:", result["final_url"])
-        print("Loop detected:", result["loop_detected"])
-        print("HTTPS downgrade:", result["https_downgrade"])
-        print("External redirects:", result["external_redirects"])
-        print("Error:", result["error"])
-        print("Stop reason:", result["stop_reason"])
+            print("Redirect count:", result["redirect_count"])
+            print("Final URL:", result["final_url"])
+            print("Loop detected:", result["loop_detected"])
+            print("HTTPS downgrade:", result["https_downgrade"])
+            print("External redirects:", result["external_redirects"])
+            print("Error:", result["error"])
+            print("Stop reason:", result["stop_reason"])
 
-    except Exception as exc:
-        print("Unexpected error:", type(exc).__name__, str(exc))
+        except Exception as exc:
+            print("Unexpected error:", type(exc).__name__, str(exc))
+
+
+if __name__ == "__main__":
+    run_redirect_tests()

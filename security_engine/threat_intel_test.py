@@ -6,7 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import threat_intel
+if __package__:
+    from . import threat_intel
+else:
+    import threat_intel
 
 
 class ThreatIntelligenceTests(unittest.TestCase):
