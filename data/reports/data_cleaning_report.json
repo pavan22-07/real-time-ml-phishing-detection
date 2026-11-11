@@ -1,0 +1,24 @@
+{
+    "timestamp": "2026-11-10T19:49:38.215390+00:00",
+    "initial_raw_records": 116600,
+    "final_cleaned_records": 115231,
+    "removed_records": 1369,
+    "missing_urls": 0,
+    "missing_labels": 0,
+    "empty_urls": 0,
+    "invalid_labels": 0,
+    "unexpected_labels": 0,
+    "duplicate_urls_removed": 1369,
+    "conflicting_url_labels": 0,
+    "class_distribution": {
+        "legitimate_0": {
+            "count": 98641,
+            "percentage": 85.6
+        },
+        "phishing_1": {
+            "count": 16590,
+            "percentage": 14.4
+        }
+    },
+    "imbalance_ratio": 5.95
+}

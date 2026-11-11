@@ -1,0 +1,33 @@
+{
+    "total_records": 115231,
+    "train": {
+        "count": 80171,
+        "percentage": 69.57,
+        "legitimate": 69272,
+        "phishing": 10899,
+        "phishing_ratio": 0.1359,
+        "unique_domains": 63601
+    },
+    "validation": {
+        "count": 18703,
+        "percentage": 16.23,
+        "legitimate": 14852,
+        "phishing": 3851,
+        "phishing_ratio": 0.2059,
+        "unique_domains": 13629
+    },
+    "test": {
+        "count": 16357,
+        "percentage": 14.19,
+        "legitimate": 14517,
+        "phishing": 1840,
+        "phishing_ratio": 0.1125,
+        "unique_domains": 13629
+    },
+    "leakage_verification": {
+        "train_val_domain_overlap": 0,
+        "train_test_domain_overlap": 0,
+        "val_test_domain_overlap": 0,
+        "is_zero_leakage": true
+    }
+}

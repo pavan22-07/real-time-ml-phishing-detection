@@ -21,3 +21,20 @@ staticfiles/
 # OS
 .DS_Store
 Thumbs.db
+
+# Large Datasets, Caches, and Temporary Files
+data/raw/
+data/processed/
+data/ml_dataset.csv
+data/.tld_cache/
+data/reports/.mpl_cache/
+.mpl_cache/
+*.lock
+*.tmp
+*.temp
+*.log
+
+# Model Binary Artifacts (keep only production best_model.joblib, metadata, and schema tracked)
+*.joblib
+*.pkl
+!ml_engine/models/best_model.joblib
