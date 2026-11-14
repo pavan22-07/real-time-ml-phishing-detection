@@ -221,6 +221,15 @@ class CombinedPolicyTests(unittest.TestCase):
             {ENGINE_SECURITY: "Security unavailable", ENGINE_ML: "ML unavailable"},
         )
 
+    def test_ml_malicious_with_cybersecurity_benign_warns_never_blocks(self):
+        """Rule 4: ML verdict MALICIOUS alone must produce WARN unless cybersecurity independently blocks."""
+        outcome = evaluate_combined_policy(
+            _sec_result(status=ENGINE_STATUS_OK, verdict=VERDICT_BENIGN, risk_score=0.0, raw_decision="ALLOW"),
+            _ml_result(status=ENGINE_STATUS_OK, verdict=VERDICT_MALICIOUS, prob=0.999),
+        )
+        self.assertEqual(outcome["final_decision"], "WARN")
+        self.assertFalse(outcome["degraded_mode"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

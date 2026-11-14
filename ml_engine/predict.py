@@ -123,10 +123,37 @@ def predict_url(url: str) -> Dict[str, Any]:
 
     # 4. Model Prediction
     try:
-        # Probability estimates: classes_ are [0, 1] -> [P(legitimate), P(phishing)]
+        # Determine actual classes_ mapping from the pipeline or final estimator
+        classes = getattr(pipeline, "classes_", None)
+        if classes is None and hasattr(pipeline, "steps") and pipeline.steps:
+            classes = getattr(pipeline.steps[-1][1], "classes_", None)
+
+        if classes is None:
+            raise ValueError("Model does not expose classes_ attribute.")
+
+        classes_list = list(classes)
+        # Class 0: Legitimate, Class 1: Phishing
+        if 0 not in classes_list or 1 not in classes_list:
+            raise ValueError(f"Model classes_ {classes_list} does not contain expected binary classes [0, 1].")
+
+        legit_idx = classes_list.index(0)
+        phish_idx = classes_list.index(1)
+
         probabilities = pipeline.predict_proba(features_df)[0]
-        legitimate_prob = float(probabilities[0])
-        phishing_prob = float(probabilities[1])
+        if len(probabilities) < 2:
+            raise ValueError(f"Model returned insufficient probabilities: {probabilities}")
+
+        legitimate_prob = float(probabilities[legit_idx])
+        phishing_prob = float(probabilities[phish_idx])
+
+        # Validate probability ranges
+        if not (0.0 <= legitimate_prob <= 1.0) or not (0.0 <= phishing_prob <= 1.0):
+            raise ValueError(f"Probabilities out of [0, 1] range: legit={legitimate_prob}, phish={phishing_prob}")
+
+        # Validate probability sum approximately equals 1.0
+        prob_sum = legitimate_prob + phishing_prob
+        if not (0.95 <= prob_sum <= 1.05):
+            raise ValueError(f"Probabilities do not sum to ~1.0: sum={prob_sum}")
 
         # Predicted label
         raw_pred = int(pipeline.predict(features_df)[0])
@@ -138,6 +165,7 @@ def predict_url(url: str) -> Dict[str, Any]:
             "label": raw_pred,
             "phishing_probability": round(phishing_prob, 4),
             "legitimate_probability": round(legitimate_prob, 4),
+            "is_calibrated": False,
             "model_name": metadata.get("model_name", "Random Forest"),
             "model_version": metadata.get("model_version", "1.0.0"),
             "status": "SUCCESS"

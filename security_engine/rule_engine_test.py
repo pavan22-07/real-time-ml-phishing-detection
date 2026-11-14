@@ -172,13 +172,7 @@ class RuleEngineTests(unittest.TestCase):
 
         self.assertEqual(len(rule_names), len(set(rule_names)))
 
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
     def test_example_domain_is_not_apple_impersonation(self):
-
         features = {
             "hostname": "example.com",
             "registered_domain": "example.com"
@@ -189,7 +183,6 @@ if __name__ == "__main__":
         self.assertFalse(result["detected"])
 
     def test_legitimate_keyword_path_is_not_brand_impersonation(self):
-
         features = {
             "hostname": "example.com",
             "registered_domain": "example.com"
@@ -200,7 +193,6 @@ if __name__ == "__main__":
         self.assertFalse(result["detected"])
 
     def test_paypal_subdomain_impersonation(self):
-
         features = {
             "hostname": "paypal.com.evil-site.com",
             "registered_domain": "evil-site.com"
@@ -211,7 +203,6 @@ if __name__ == "__main__":
         self.assertTrue(result["detected"])
 
     def test_paypal_login_domain_impersonation(self):
-
         features = {
             "hostname": "paypal-login.com",
             "registered_domain": "paypal-login.com"
@@ -222,7 +213,6 @@ if __name__ == "__main__":
         self.assertTrue(result["detected"])
 
     def test_google_numeric_lookalike(self):
-
         features = {
             "hostname": "g00gle.com",
             "registered_domain": "g00gle.com"
@@ -231,3 +221,7 @@ if __name__ == "__main__":
         result = check_brand_impersonation(features)
 
         self.assertTrue(result["detected"])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

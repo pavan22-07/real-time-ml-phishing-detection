@@ -107,6 +107,7 @@ class PredictionTests(unittest.TestCase):
     def test_unexpected_prediction_error_returns_error(self):
         """Verify inference runtime exceptions return structured ERROR with no fabricated output."""
         broken_pipeline = MagicMock()
+        broken_pipeline.classes_ = [0, 1]
         broken_pipeline.predict_proba.side_effect = RuntimeError("Simulated inference crash")
         mock_meta = {"model_name": "Random Forest", "model_version": "1.0.0"}
 
@@ -118,6 +119,51 @@ class PredictionTests(unittest.TestCase):
         self.assertIsNone(res["label"])
         self.assertIsNone(res["phishing_probability"])
         self.assertIn("simulated inference crash", res["error_message"].lower())
+
+    def test_reversed_class_ordering(self):
+        """Verify that when classes_ is [1, 0], columns are correctly mapped."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.classes_ = [1, 0]
+        # P(1)=0.85, P(0)=0.15
+        mock_pipeline.predict_proba.return_value = [[0.85, 0.15]]
+        mock_pipeline.predict.return_value = [1]
+        mock_meta = {"model_name": "Random Forest", "model_version": "1.0.0"}
+
+        with patch.object(predict_module, "get_model", return_value=(mock_pipeline, mock_meta, [])):
+            res = predict_url("https://example.com")
+
+        self.assertEqual(res["status"], "SUCCESS")
+        self.assertEqual(res["prediction"], "PHISHING")
+        self.assertEqual(res["phishing_probability"], 0.85)
+        self.assertEqual(res["legitimate_probability"], 0.15)
+        self.assertFalse(res["is_calibrated"])
+
+    def test_missing_class_in_classes_attribute(self):
+        """Verify that missing binary classes raises structured error."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.classes_ = [0]
+        mock_pipeline.predict_proba.return_value = [[1.0]]
+        mock_meta = {"model_name": "Random Forest", "model_version": "1.0.0"}
+
+        with patch.object(predict_module, "get_model", return_value=(mock_pipeline, mock_meta, [])):
+            res = predict_url("https://example.com")
+
+        self.assertEqual(res["status"], "ERROR")
+        self.assertIn("classes_", res["error_message"].lower())
+
+    def test_invalid_probability_sum_error(self):
+        """Verify that probabilities not summing to ~1.0 returns ERROR."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.classes_ = [0, 1]
+        mock_pipeline.predict_proba.return_value = [[0.2, 0.2]]
+        mock_pipeline.predict.return_value = [0]
+        mock_meta = {"model_name": "Random Forest", "model_version": "1.0.0"}
+
+        with patch.object(predict_module, "get_model", return_value=(mock_pipeline, mock_meta, [])):
+            res = predict_url("https://example.com")
+
+        self.assertEqual(res["status"], "ERROR")
+        self.assertIn("sum", res["error_message"].lower())
 
 
 if __name__ == "__main__":

@@ -46,11 +46,11 @@ def determine_decision(risk_assessment, features):
             "No significant suspicious indicators detected"
         )
 
-    # Priority 3: High-severity findings
-    # A high-severity finding must never silently result in ALLOW.
+    # Priority 3: High- and Critical-severity findings
+    # A high- or critical-severity finding must never silently result in ALLOW.
     high_severity_findings = [
         finding for finding in detected_findings
-        if finding.get("severity") == "HIGH"
+        if finding.get("severity") in {"HIGH", "CRITICAL"}
     ]
 
     if high_severity_findings and decision == "ALLOW":
@@ -88,7 +88,7 @@ def determine_decision(risk_assessment, features):
     if (
         threat_intel.get("available") is False
         or threat_intel.get("feed_status") in {
-            "STALE", "UNKNOWN", "UNAVAILABLE"
+            "STALE", "UNKNOWN", "UNAVAILABLE", "MALFORMED"
         }
     ):
         inspection_warnings.append(

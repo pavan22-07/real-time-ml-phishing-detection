@@ -140,6 +140,43 @@ class ThreatIntelligenceTests(unittest.TestCase):
         self.assertEqual(result["feed_status"], "STALE")
         self.assertFalse(result["matched"])
 
+    def test_feed_checksum_mismatch_detected(self):
+        from datetime import datetime, timezone
+        self.metadata_file.write_text(
+            json.dumps({
+                "source": "Test Feed",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "entry_count": 2,
+                "sha256": "badbeef000000000000000000000000000000000000000000000000000000000"
+            }),
+            encoding="utf-8"
+        )
+
+        result = threat_intel.check_threat_intelligence("https://google.com")
+        self.assertFalse(result["available"])
+        self.assertEqual(result["feed_status"], "MALFORMED")
+        self.assertIn("checksum", result["reason"].lower())
+
+    def test_feed_checksum_valid(self):
+        import hashlib
+        from datetime import datetime, timezone
+        feed_bytes = self.feed_file.read_bytes()
+        valid_hash = hashlib.sha256(feed_bytes).hexdigest()
+        self.metadata_file.write_text(
+            json.dumps({
+                "source": "Test Feed",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "entry_count": 2,
+                "sha256": valid_hash
+            }),
+            encoding="utf-8"
+        )
+
+        result = threat_intel.check_threat_intelligence("https://malicious.example.invalid/login")
+        self.assertTrue(result["available"])
+        self.assertEqual(result["feed_status"], "FRESH")
+        self.assertTrue(result["matched"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

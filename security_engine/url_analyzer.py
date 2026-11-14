@@ -1,8 +1,19 @@
-from urllib.parse import urlparse,unquote
+from pathlib import Path
+from urllib.parse import urlparse, unquote
 import ipaddress
 import re
 import tldextract
 import unicodedata
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+TLD_CACHE_DIR = PROJECT_ROOT / "data" / ".tld_cache"
+TLD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+_extractor = tldextract.TLDExtract(
+    cache_dir=str(TLD_CACHE_DIR),
+    fallback_to_snapshot=True,
+    suffix_list_urls=None
+)
 
 
 def analyze_idn(hostname):
@@ -152,16 +163,26 @@ def analyze_encoding(url):
 
 
 def analyze_url(url):
-    encoding_features = analyze_encoding(url)
-    parsed = urlparse(url)
+    if url is None or not isinstance(url, str):
+        raise ValueError("URL must be a string")
+    clean_url = url.strip()
+    if not clean_url:
+        raise ValueError("URL cannot be empty or whitespace")
+
+    encoding_features = analyze_encoding(clean_url)
+    try:
+        parsed = urlparse(clean_url)
+    except Exception as exc:
+        raise ValueError(f"Malformed URL: {exc}") from exc
+
     hostname = parsed.hostname
     has_url_credentials = (
-    parsed.username is not None
-    or parsed.password is not None
-)
+        parsed.username is not None
+        or parsed.password is not None
+    )
 
     if hostname:
-        domain_info = tldextract.extract(hostname)
+        domain_info = _extractor(hostname)
 
         subdomain = domain_info.subdomain
 
@@ -183,7 +204,6 @@ def analyze_url(url):
         registered_domain = None
         subdomain_count = 0
         idn_features = analyze_idn(None)
-    
 
     try:
         ipaddress.ip_address(hostname)
@@ -192,7 +212,7 @@ def analyze_url(url):
         has_ip = False
 
     special_chars = "@-_%?=&"
-    special_count = sum(url.count(char) for char in special_chars)
+    special_count = sum(clean_url.count(char) for char in special_chars)
 
     suspicious_keywords = [
         "login",
@@ -208,7 +228,7 @@ def analyze_url(url):
     found_keywords = []
 
     for word in suspicious_keywords:
-        if word in url.lower():
+        if word in clean_url.lower():
             found_keywords.append(word)
 
     return {
@@ -216,18 +236,17 @@ def analyze_url(url):
         "subdomain": subdomain,
         "registered_domain": registered_domain,
         "subdomain_count": subdomain_count,
-        "url_length": len(url),
+        "url_length": len(clean_url),
         "dot_count": parsed.netloc.count("."),
         "has_ip": has_ip,
         "special_char_count": special_count,
         "uses_https": parsed.scheme == "https",
         "suspicious_keywords": found_keywords,
-        "has_at_symbol": "@" in url,
-        "has_encoding": "%" in url,
+        "has_at_symbol": "@" in clean_url,
+        "has_encoding": "%" in clean_url,
         "has_hyphen": "-" in parsed.netloc,
         "encoding_analysis": encoding_features,
         "idn_analysis": idn_features,
         "has_url_credentials": has_url_credentials,
-        "has_at_symbol": "@" in url,
     }
 

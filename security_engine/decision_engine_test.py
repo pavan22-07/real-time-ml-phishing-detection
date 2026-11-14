@@ -149,13 +149,7 @@ class DecisionEngineTests(unittest.TestCase):
             "IP_ADDRESS"
         )
 
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
     def test_ip_address_url_cannot_receive_allow(self):
-
         findings = [{
             "rule": "IP_ADDRESS",
             "detected": True,
@@ -178,7 +172,6 @@ if __name__ == "__main__":
         self.assertEqual(result["decision"], "WARN")
 
     def test_url_credentials_cannot_receive_allow(self):
-
         findings = [{
             "rule": "AT_SYMBOL",
             "detected": True,
@@ -199,3 +192,7 @@ if __name__ == "__main__":
         )
 
         self.assertEqual(result["decision"], "WARN")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

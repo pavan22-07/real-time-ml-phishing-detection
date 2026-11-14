@@ -1,4 +1,5 @@
 
+import hashlib
 import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -77,7 +78,6 @@ def load_metadata():
 
 
 def load_feed():
-
     if not OPENPHISH_FILE.exists():
         return {
             "available": False,
@@ -87,30 +87,42 @@ def load_feed():
         }
 
     try:
-        lines = OPENPHISH_FILE.read_text(
-            encoding="utf-8"
-        ).splitlines()
-
-    except OSError:
+        raw_bytes = OPENPHISH_FILE.read_bytes()
+        text = raw_bytes.decode("utf-8")
+        lines = text.splitlines()
+    except (OSError, UnicodeDecodeError):
         return {
             "available": False,
+            "malformed": True,
             "urls": set(),
             "hostnames": set(),
-            "metadata": None
+            "metadata": None,
+            "reason": "Threat feed file could not be read or decoded"
         }
+
+    metadata = load_metadata()
+
+    # Verify checksum consistency against metadata if available
+    if metadata and "sha256" in metadata:
+        actual_sha256 = hashlib.sha256(raw_bytes).hexdigest()
+        if actual_sha256.lower() != metadata["sha256"].lower():
+            return {
+                "available": False,
+                "malformed": True,
+                "urls": set(),
+                "hostnames": set(),
+                "metadata": metadata,
+                "reason": "Threat feed checksum does not match metadata"
+            }
 
     urls = set()
     hostnames = set()
 
     for line in lines:
-
         normalized = normalize_url(line)
-
         if normalized:
             urls.add(normalized)
-
             hostname = urlsplit(normalized).hostname
-
             if hostname:
                 hostnames.add(hostname)
 
@@ -118,11 +130,13 @@ def load_feed():
         "available": True,
         "urls": urls,
         "hostnames": hostnames,
-        "metadata": load_metadata()
+        "metadata": metadata
     }
 
 
 def feed_status(feed):
+    if feed.get("malformed"):
+        return "MALFORMED"
 
     metadata = feed.get("metadata")
 
@@ -151,7 +165,6 @@ def feed_status(feed):
 
 
 def check_threat_intelligence(url):
-
     normalized = normalize_url(url)
 
     if not normalized:
@@ -170,7 +183,6 @@ def check_threat_intelligence(url):
     status = feed_status(feed)
 
     if not feed["available"]:
-
         return {
             "available": False,
             "feed_status": status,
@@ -178,7 +190,7 @@ def check_threat_intelligence(url):
             "match_type": None,
             "matched_indicator": None,
             "source": "OpenPhish Community",
-            "reason": "Local threat intelligence feed unavailable"
+            "reason": feed.get("reason", "Local threat intelligence feed unavailable")
         }
 
     hostname = urlsplit(normalized).hostname

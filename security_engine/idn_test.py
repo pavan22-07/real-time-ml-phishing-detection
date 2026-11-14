@@ -1,3 +1,4 @@
+import unittest
 
 if __package__:
     from .url_analyzer import analyze_url
@@ -6,29 +7,26 @@ else:
     from url_analyzer import analyze_url
     from rule_engine import check_idn_homograph, run_security_rules
 
-test_urls = [
-    "https://paypal.com",
-    "https://раypal.com",
-    "https://google.com",
-    "https://gооgle.com",
-    "https://xn--ypal-43d9g.com",
-    "https://例え.テスト",
-    "https://localhost:5173"
-]
 
-for url in test_urls:
+class IDNHomographTests(unittest.TestCase):
+    def test_idn_homograph_cases(self):
+        # Lookalike domains should be detected
+        cyrillic_paypal = analyze_url("https://раypal.com")
+        self.assertTrue(check_idn_homograph(cyrillic_paypal)["detected"])
 
-    features = analyze_url(url)
+        cyrillic_google = analyze_url("https://gооgle.com")
+        self.assertTrue(check_idn_homograph(cyrillic_google)["detected"])
 
-    idn_analysis = features["idn_analysis"]
-    idn_result = check_idn_homograph(features)
+        punycode_paypal = analyze_url("https://xn--ypal-43d9g.com")
+        self.assertTrue(check_idn_homograph(punycode_paypal)["detected"])
 
-    print("\n" + "=" * 60)
-    print("URL:", url)
-    print("Hostname:", features["hostname"])
-    print("IDN Analysis:", idn_analysis)
-    print("IDN Rule:", idn_result)
+        # Legitimate ASCII domains should not trigger IDN homograph finding
+        legit_paypal = analyze_url("https://paypal.com")
+        self.assertFalse(check_idn_homograph(legit_paypal)["detected"])
 
-    all_findings = run_security_rules(features)
+        legit_google = analyze_url("https://google.com")
+        self.assertFalse(check_idn_homograph(legit_google)["detected"])
 
-    print("Integrated Findings:", all_findings)
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

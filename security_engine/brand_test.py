@@ -1,3 +1,5 @@
+import unittest
+
 if __package__:
     from .url_analyzer import analyze_url
     from .rule_engine import check_brand_impersonation
@@ -5,20 +7,23 @@ else:
     from url_analyzer import analyze_url
     from rule_engine import check_brand_impersonation
 
-test_urls = [
-    "https://paypal.com",
-    "https://paypal.com.evil-site.com",
-    "https://paypa1.com",
-    "https://paypal-login.com",
-    "https://google.com",
-    "https://g00gle.com"
-]
 
-for url in test_urls:
+class BrandImpersonationTests(unittest.TestCase):
+    def test_brand_cases(self):
+        cases = [
+            ("https://paypal.com", False),
+            ("https://paypal.com.evil-site.com", True),
+            ("https://paypa1.com", True),
+            ("https://paypal-login.com", True),
+            ("https://google.com", False),
+            ("https://g00gle.com", True),
+        ]
+        for url, expected_detected in cases:
+            with self.subTest(url=url):
+                features = analyze_url(url)
+                result = check_brand_impersonation(features)
+                self.assertEqual(result["detected"], expected_detected, msg=f"Failed for {url}")
 
-    features = analyze_url(url)
 
-    result = check_brand_impersonation(features)
-
-    print("\nURL:", url)
-    print("Result:", result)
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
