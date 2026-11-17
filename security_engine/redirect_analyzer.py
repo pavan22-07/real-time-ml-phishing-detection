@@ -255,6 +255,7 @@ class SSRFPinnedAdapter(HTTPAdapter):
     Adapter that forces HTTP/HTTPS connections to connect directly to a
     pre-validated IP address, eliminating DNS-rebinding / TOCTOU.
     Preserves the original hostname for SNI, certificate matching, and HTTP Host header.
+    Rejects and securely disables any proxy configurations to prevent SSRF bypasses.
     """
     def __init__(self, pinned_ip: str, *args, **kwargs):
         self.pinned_ip = pinned_ip
@@ -270,6 +271,25 @@ class SSRFPinnedAdapter(HTTPAdapter):
             "http": http_pool,
             "https": https_pool
         }
+
+    def proxy_manager_for(self, proxy, **proxy_kwargs):
+        """Reject proxy manager creation to guarantee no proxy bypasses the pinned connection pool."""
+        raise ValueError(f"Proxy configuration is disabled for SSRF protection: {proxy}")
+
+    def get_connection(self, url, proxies=None):
+        """Always return connection from pinned poolmanager, strictly ignoring any proxy parameter."""
+        return self.poolmanager.connection_from_url(url)
+
+    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
+        """Send request forcing proxies to be empty to prevent proxy routing."""
+        return super().send(
+            request,
+            stream=stream,
+            timeout=timeout,
+            verify=verify,
+            cert=cert,
+            proxies={},
+        )
 
 
 def analyze_redirects(
@@ -307,8 +327,10 @@ def analyze_redirects(
 
     own_session = session is None
     req_session = session or requests.Session()
-    # Explicitly disable proxy environment inheritance
+    # Explicitly disable proxy environment inheritance and securely disable any session-level proxies
     req_session.trust_env = False
+    if hasattr(req_session, "proxies") and req_session.proxies:
+        req_session.proxies.clear()
 
     try:
         while True:
@@ -349,6 +371,7 @@ def analyze_redirects(
                     timeout=TIMEOUT,
                     stream=True,
                     verify=True,
+                    proxies={},
                     headers={
                         "User-Agent": "PhishingSecurityAnalyzer/1.0",
                         "Accept": "*/*"

@@ -81,9 +81,11 @@ def load_feed():
     if not OPENPHISH_FILE.exists():
         return {
             "available": False,
+            "malformed": False,
             "urls": set(),
             "hostnames": set(),
-            "metadata": None
+            "metadata": None,
+            "reason": "Threat feed file does not exist"
         }
 
     try:
@@ -101,19 +103,83 @@ def load_feed():
         }
 
     metadata = load_metadata()
+    if metadata is None or not isinstance(metadata, dict):
+        return {
+            "available": False,
+            "malformed": True,
+            "urls": set(),
+            "hostnames": set(),
+            "metadata": None,
+            "reason": "Threat feed metadata is missing, unreadable, or not a JSON object"
+        }
 
-    # Verify checksum consistency against metadata if available
-    if metadata and "sha256" in metadata:
-        actual_sha256 = hashlib.sha256(raw_bytes).hexdigest()
-        if actual_sha256.lower() != metadata["sha256"].lower():
-            return {
-                "available": False,
-                "malformed": True,
-                "urls": set(),
-                "hostnames": set(),
-                "metadata": metadata,
-                "reason": "Threat feed checksum does not match metadata"
-            }
+    # Validate required metadata fields
+    source = metadata.get("source")
+    if not isinstance(source, str) or not source.strip():
+        return {
+            "available": False,
+            "malformed": True,
+            "urls": set(),
+            "hostnames": set(),
+            "metadata": metadata,
+            "reason": "Threat feed metadata missing or invalid 'source' field"
+        }
+
+    updated_at_str = metadata.get("updated_at")
+    if not isinstance(updated_at_str, str) or not updated_at_str.strip():
+        return {
+            "available": False,
+            "malformed": True,
+            "urls": set(),
+            "hostnames": set(),
+            "metadata": metadata,
+            "reason": "Threat feed metadata missing or empty 'updated_at' field"
+        }
+    try:
+        datetime.fromisoformat(updated_at_str)
+    except (ValueError, TypeError):
+        return {
+            "available": False,
+            "malformed": True,
+            "urls": set(),
+            "hostnames": set(),
+            "metadata": metadata,
+            "reason": "Threat feed metadata 'updated_at' is not a valid ISO timestamp"
+        }
+
+    entry_count = metadata.get("entry_count")
+    if not isinstance(entry_count, int) or isinstance(entry_count, bool) or entry_count < 0:
+        return {
+            "available": False,
+            "malformed": True,
+            "urls": set(),
+            "hostnames": set(),
+            "metadata": metadata,
+            "reason": "Threat feed metadata missing or invalid 'entry_count' field"
+        }
+
+    sha256_val = metadata.get("sha256")
+    if not isinstance(sha256_val, str) or not sha256_val.strip():
+        return {
+            "available": False,
+            "malformed": True,
+            "urls": set(),
+            "hostnames": set(),
+            "metadata": metadata,
+            "reason": "Threat feed metadata missing or empty 'sha256' field"
+        }
+
+    # Verify checksum consistency against metadata
+    actual_sha256 = hashlib.sha256(raw_bytes).hexdigest()
+    if actual_sha256.lower() != sha256_val.strip().lower():
+        return {
+            "available": False,
+            "malformed": True,
+            "urls": set(),
+            "hostnames": set(),
+            "metadata": metadata,
+            "reason": "Threat feed checksum does not match metadata"
+        }
 
     urls = set()
     hostnames = set()
@@ -125,6 +191,17 @@ def load_feed():
             hostname = urlsplit(normalized).hostname
             if hostname:
                 hostnames.add(hostname)
+
+    # Validate actual unique valid entry count against metadata entry_count
+    if len(urls) != entry_count:
+        return {
+            "available": False,
+            "malformed": True,
+            "urls": set(),
+            "hostnames": set(),
+            "metadata": metadata,
+            "reason": f"Threat feed actual valid entry count ({len(urls)}) does not match metadata entry_count ({entry_count})"
+        }
 
     return {
         "available": True,
@@ -138,15 +215,19 @@ def feed_status(feed):
     if feed.get("malformed"):
         return "MALFORMED"
 
-    metadata = feed.get("metadata")
-
-    if not feed["available"] or not metadata:
+    if not feed.get("available", False):
         return "UNAVAILABLE"
 
+    metadata = feed.get("metadata")
+    if not metadata or not isinstance(metadata, dict):
+        return "MALFORMED"
+
     try:
-        updated_at = datetime.fromisoformat(
-            metadata["updated_at"]
-        )
+        updated_at_str = metadata.get("updated_at")
+        if not updated_at_str or not isinstance(updated_at_str, str):
+            return "MALFORMED"
+
+        updated_at = datetime.fromisoformat(updated_at_str)
 
         if updated_at.tzinfo is None:
             updated_at = updated_at.replace(
@@ -161,7 +242,7 @@ def feed_status(feed):
         return "FRESH"
 
     except (ValueError, KeyError, TypeError):
-        return "UNKNOWN"
+        return "MALFORMED"
 
 
 def check_threat_intelligence(url):

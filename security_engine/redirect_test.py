@@ -16,6 +16,9 @@ if __package__:
         is_public_ip,
         get_registered_domain,
         MAX_REDIRECTS,
+        SSRFPinnedAdapter,
+        PinnedHTTPSConnection,
+        PinnedHTTPConnection,
     )
 else:
     from redirect_analyzer import (
@@ -25,6 +28,9 @@ else:
         is_public_ip,
         get_registered_domain,
         MAX_REDIRECTS,
+        SSRFPinnedAdapter,
+        PinnedHTTPSConnection,
+        PinnedHTTPConnection,
     )
 import ipaddress
 
@@ -334,6 +340,121 @@ class RedirectAnalyzerSSRFTests(unittest.TestCase):
 
         self.assertEqual(result["stop_reason"], "Request failed")
         self.assertIn("ConnectTimeout", result["error"])
+
+    def test_explicit_session_proxy_disabled_and_rejected(self):
+        """Test that explicit session proxies are cleared and adapter rejects proxy managers."""
+        import requests
+        session = requests.Session()
+        session.proxies = {
+            "http": "http://127.0.0.1:8080",
+            "https": "http://127.0.0.1:8080"
+        }
+
+        def fake_resolver(host, port, type=socket.SOCK_STREAM):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+
+        with patch.object(requests.Session, "get", return_value=mock_response) as mock_get:
+            result = analyze_redirects(
+                "http://example.com/test",
+                session=session,
+                resolver=fake_resolver
+            )
+            # Verify session proxies were securely disabled/cleared
+            self.assertEqual(session.proxies, {})
+            self.assertFalse(session.trust_env)
+            # Verify get was called with proxies={}
+            mock_get.assert_called_once()
+            _, kwargs = mock_get.call_args
+            self.assertEqual(kwargs.get("proxies"), {})
+
+        # Verify SSRFPinnedAdapter rejects proxy manager instantiation
+        adapter = SSRFPinnedAdapter("93.184.216.34")
+        with self.assertRaises(ValueError) as cm:
+            adapter.proxy_manager_for("http://127.0.0.1:8080")
+        self.assertIn("Proxy configuration is disabled", str(cm.exception))
+
+    def test_environment_proxy_ignored(self):
+        """Test that environment variables (HTTP_PROXY, HTTPS_PROXY) are ignored."""
+        import os
+        import requests
+
+        def fake_resolver(host, port, type=socket.SOCK_STREAM):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+
+        with patch.dict(os.environ, {
+            "HTTP_PROXY": "http://evil-proxy:8080",
+            "HTTPS_PROXY": "http://evil-proxy:8443",
+            "http_proxy": "http://evil-proxy:8080",
+            "https_proxy": "http://evil-proxy:8443"
+        }):
+            with patch.object(requests.Session, "get", return_value=mock_response) as mock_get:
+                result = analyze_redirects(
+                    "http://example.com/env-test",
+                    resolver=fake_resolver
+                )
+                self.assertEqual(result["final_status_code"], 200)
+                mock_get.assert_called_once()
+                _, kwargs = mock_get.call_args
+                self.assertEqual(kwargs.get("proxies"), {})
+
+    def test_pinned_destination_connection_behavior(self):
+        """Test that the underlying socket connection directly targets the pinned public IP."""
+        conn = PinnedHTTPSConnection(host="example.com", port=443)
+        conn.pinned_ip = "93.184.216.34"
+
+        with patch("urllib3.util.connection.create_connection") as mock_create_conn:
+            fake_sock = MagicMock()
+            mock_create_conn.return_value = fake_sock
+
+            sock = conn._new_conn()
+            self.assertEqual(sock, fake_sock)
+            mock_create_conn.assert_called_once()
+            args, _ = mock_create_conn.call_args
+            dest_address = args[0]
+            self.assertEqual(dest_address, ("93.184.216.34", 443))
+
+    def test_tls_sni_and_hostname_verification_preserved(self):
+        """Test that TLS SNI and hostname certificate verification preserve original hostname."""
+        conn = PinnedHTTPSConnection(host="example.com", port=443)
+        conn.pinned_ip = "93.184.216.34"
+
+        self.assertEqual(conn.host, "example.com")
+
+        with patch("urllib3.util.connection.create_connection") as mock_create_conn, \
+             patch("urllib3.connection._ssl_wrap_socket_and_match_hostname") as mock_ssl_wrap:
+            fake_sock = MagicMock()
+            mock_create_conn.return_value = fake_sock
+            mock_ssl_wrap.return_value = MagicMock(socket=fake_sock, is_verified=True)
+
+            conn.connect()
+
+            mock_ssl_wrap.assert_called_once()
+            _, kwargs = mock_ssl_wrap.call_args
+            self.assertEqual(kwargs["server_hostname"], "example.com")
+            self.assertEqual(conn.host, "example.com")
+
+        import requests
+        def fake_resolver(host, port, type=socket.SOCK_STREAM):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+        mock_session = MagicMock()
+        mock_session.get.side_effect = requests.exceptions.SSLError("Hostname mismatch on certificate")
+
+        result = analyze_redirects(
+            "https://example.com/bad-cert",
+            session=mock_session,
+            resolver=fake_resolver
+        )
+        self.assertEqual(result["stop_reason"], "Request failed")
+        self.assertIn("SSLError", result["error"])
 
 
 if __name__ == "__main__":
