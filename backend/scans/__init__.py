@@ -1,0 +1,1 @@
+"""Scans application package."""

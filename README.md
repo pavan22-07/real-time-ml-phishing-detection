@@ -186,36 +186,356 @@ The production model is a **Random Forest Classifier** trained on the *URL-Phish
 
 ---
 
-## 8. Automated Testing
+## 8. Backend REST API Architecture (`backend/`)
+
+The backend wraps the Unified Engine in a production-ready Django REST Framework API with PostgreSQL persistence and JWT authentication.
+
+```
+                           React / Client Application
+                                      │
+                                      ▼
+                        [ HTTPS / CORS Middleware ]
+                                      │
+                                      ▼
+                           Django REST Framework
+                      ┌───────────────────────────────┐
+                      │  - Scoped Rate Throttling     │
+                      │  - SimpleJWT Authentication   │
+                      │  - Serializer Validation      │
+                      │  - Safe Exception Handler     │
+                      └──────────────┬────────────────┘
+                                     │
+                 ┌───────────────────┴───────────────────┐
+                 ▼                                       ▼
+          Accounts Module                           Scans Module
+        (`backend/accounts/`)                   (`backend/scans/`)
+     ┌────────────────────────┐              ┌────────────────────────┐
+     │ - User Registration    │              │ - URL Validation       │
+     │ - JWT Token Issuance   │              │ - Scan Service Layer   │
+     │ - Profile Management   │              │ - Scan History (UUID)  │
+     │ - Password Hashing     │              │ - Dashboard Stats      │
+     └────────────────────────┘              └───────────┬────────────┘
+                                                         │
+                                                         ▼
+                                                Unified Engine API
+                                           (`unified_engine.detector`)
+                                            scan_url(url, inspect=False)
+                                                         │
+                                                         ▼
+                                                PostgreSQL Database
+                                           (`ScanHistory` / `auth_user`)
+```
+
+### 8.1 Backend Endpoints Summary
+
+| Method | Endpoint | Auth Required | Description |
+|:---|:---|:---:|:---|
+| `POST` | `/api/v1/auth/register/` | No | User registration with password validation; issues JWT token pair. |
+| `POST` | `/api/v1/auth/login/` | No | Authenticate credentials; issues JWT token pair. Throttled (`15/min`). |
+| `POST` | `/api/v1/auth/token/refresh/` | No | Refresh an expired access token using a valid refresh token. |
+| `GET` | `/api/v1/auth/profile/` | **Yes (JWT)** | Retrieve the authenticated user's profile. |
+| `POST` | `/api/v1/scans/` | **Yes (JWT)** | Submit URL for static unified phishing detection. Throttled (`60/min`). |
+| `GET` | `/api/v1/scans/` | **Yes (JWT)** | Paginated history of user's own scans (newest first). |
+| `GET` | `/api/v1/scans/<id>/` | **Yes (JWT)** | Retrieve detailed scan record by UUID (isolated by user; 404 for others). |
+| `GET` | `/api/v1/dashboard/stats/` | **Yes (JWT)** | Aggregated scan metrics (totals, decisions, recent count, latest timestamp). |
+
+---
+
+## 9. Backend Setup & Startup Instructions
+
+### 9.1 Environment Configuration (`.env`)
+
+Copy the template `.env.example` to `.env` in the repository root and configure PostgreSQL credentials:
+
+```ini
+# Django Security Settings
+SECRET_KEY=your-production-secret-key-here
+DEBUG=False
+ALLOWED_HOSTS=127.0.0.1,localhost
+
+# PostgreSQL Database Configuration
+DB_NAME=phishing_detection_db
+DB_USER=postgres
+DB_PASSWORD=your_secure_db_password
+DB_HOST=localhost
+DB_PORT=5432
+
+# CORS Configuration
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+```
+
+> **Testing Fallback:** When `DB_NAME` is empty or unset, Django automatically falls back to an isolated SQLite database (`backend/db.sqlite3`), facilitating rapid local testing without a live PostgreSQL service.
+
+### 9.2 Database Migrations
+
+Apply the database schema migrations to PostgreSQL:
+
+```powershell
+python backend/manage.py migrate
+```
+
+### 9.3 Development Server Startup
+
+Launch the Django development server:
+
+```powershell
+python backend/manage.py runserver 127.0.0.1:8000
+```
+
+The API will be accessible at `http://127.0.0.1:8000/api/v1/`.
+
+---
+
+## 10. API Documentation & Examples
+
+### 10.1 Authentication (`/api/v1/auth/`)
+
+#### 1. User Registration (`POST /api/v1/auth/register/`)
+
+**Request:**
+```json
+POST /api/v1/auth/register/
+Content-Type: application/json
+
+{
+    "username": "analyst1",
+    "email": "analyst1@example.com",
+    "password": "SecurePassword123!",
+    "password_confirm": "SecurePassword123!"
+}
+```
+
+**Response (`201 Created`):**
+```json
+{
+    "message": "User registered successfully.",
+    "user": {
+        "id": 1,
+        "username": "analyst1",
+        "email": "analyst1@example.com",
+        "first_name": "",
+        "last_name": "",
+        "date_joined": "2026-11-17T17:35:00.000000Z",
+        "last_login": null,
+        "is_staff": false
+    },
+    "tokens": {
+        "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+}
+```
+
+#### 2. User Login (`POST /api/v1/auth/login/`)
+
+**Request:**
+```json
+POST /api/v1/auth/login/
+Content-Type: application/json
+
+{
+    "username": "analyst1",
+    "password": "SecurePassword123!"
+}
+```
+
+**Response (`200 OK`):**
+```json
+{
+    "message": "Authentication successful.",
+    "user": {
+        "id": 1,
+        "username": "analyst1",
+        "email": "analyst1@example.com",
+        "first_name": "",
+        "last_name": "",
+        "date_joined": "2026-11-17T17:35:00.000000Z",
+        "last_login": "2026-11-17T17:36:00.000000Z",
+        "is_staff": false
+    },
+    "tokens": {
+        "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+}
+```
+
+#### 3. Token Refresh (`POST /api/v1/auth/token/refresh/`)
+
+**Request:**
+```json
+POST /api/v1/auth/token/refresh/
+Content-Type: application/json
+
+{
+    "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response (`200 OK`):**
+```json
+{
+    "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+---
+
+### 10.2 URL Scanning (`/api/v1/scans/`)
+
+All scan endpoints require the `Authorization` header:
+```text
+Authorization: Bearer <access_token>
+```
+
+#### 1. Submit Scan (`POST /api/v1/scans/`)
+
+**Request:**
+```json
+POST /api/v1/scans/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+    "url": "https://example.com"
+}
+```
+
+**Response (`201 Created`):**
+```json
+{
+    "id": "e2f1837a-42c2-4cf4-9c3f-c96ec7f86f6d",
+    "url": "https://example.com",
+    "final_decision": "ALLOW",
+    "degraded_mode": false,
+    "cybersecurity": {
+        "status": "OK",
+        "verdict": "BENIGN",
+        "risk_score": 0
+    },
+    "machine_learning": {
+        "status": "OK",
+        "prediction": "LEGITIMATE",
+        "raw_phishing_probability": 0.0768,
+        "is_calibrated": false
+    },
+    "reasons": [
+        "Clean static analysis and ML probability confirmation."
+    ],
+    "warnings": [],
+    "timestamp": "2026-11-17T17:40:00.000000Z"
+}
+```
+
+#### 2. Scan History (`GET /api/v1/scans/`)
+
+**Request:**
+```text
+GET /api/v1/scans/?page=1
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Response (`200 OK`):**
+```json
+{
+    "count": 42,
+    "next": "http://127.0.0.1:8000/api/v1/scans/?page=2",
+    "previous": null,
+    "results": [
+        {
+            "id": "e2f1837a-42c2-4cf4-9c3f-c96ec7f86f6d",
+            "url": "https://example.com",
+            "final_decision": "ALLOW",
+            "degraded_mode": false,
+            "cybersecurity": {
+                "status": "OK",
+                "verdict": "BENIGN",
+                "risk_score": 0
+            },
+            "machine_learning": {
+                "status": "OK",
+                "prediction": "LEGITIMATE",
+                "raw_phishing_probability": 0.0768,
+                "is_calibrated": false
+            },
+            "reasons": ["Clean static analysis and ML probability confirmation."],
+            "warnings": [],
+            "timestamp": "2026-11-17T17:40:00.000000Z"
+        }
+    ]
+}
+```
+
+#### 3. Single Scan Record (`GET /api/v1/scans/<id>/`)
+
+**Request:**
+```text
+GET /api/v1/scans/e2f1837a-42c2-4cf4-9c3f-c96ec7f86f6d/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Response (`200 OK`):**
+Returns the detailed `ScanResponseSerializer` record. Non-existent UUIDs or records owned by other users return `404 Not Found`.
+
+---
+
+### 10.3 Dashboard Statistics (`/api/v1/dashboard/stats/`)
+
+**Request:**
+```text
+GET /api/v1/dashboard/stats/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Response (`200 OK`):**
+```json
+{
+    "total_scans": 25,
+    "total_allow": 18,
+    "total_warn": 4,
+    "total_block": 3,
+    "total_error": 0,
+    "recent_scans_count": 7,
+    "latest_scan_timestamp": "2026-11-17T17:40:00.000000Z"
+}
+```
+
+---
+
+## 11. Automated Testing
 
 All tests run completely offline without external network dependencies.
 
 ```powershell
-# Run Cybersecurity Engine tests (98 tests)
+# 1. Run all tests via pytest (Full Suite: 219 tests)
+python -m pytest -q
+
+# 2. Run Django REST API test suite separately (28 tests)
+python backend/manage.py test accounts scans -v 2
+
+# 3. Run Cybersecurity Engine tests (108 tests)
 pytest security_engine
 
-# Run ML Engine tests (47 tests)
+# 4. Run Machine Learning Engine tests (47 tests)
 pytest ml_engine/tests
 
-# Run Unified Engine tests (36 tests)
+# 5. Run Unified Engine tests (36 tests)
 pytest unified_engine/tests
-
-# Run complete regression suite (181 tests)
-pytest
 ```
 
-### Test Suite Summary
+### Measured Test Suite Summary
 
-| Test Suite | Collected | Passed | Failed | Skipped | Duration |
-|:---|:---:|:---:|:---:|:---:|:---:|
-| Cybersecurity Engine | 98 | 98 | 0 | 0 | ~0.55s |
-| Machine Learning Engine | 47 | 47 | 0 | 0 | ~7.5s |
-| Unified Engine | 36 | 36 | 0 | 0 | ~4.6s |
-| **Total Regression Suite** | **181** | **181** | **0** | **0** | **~10.5s** |
+| Test Suite | Path | Tests Collected | Passed | Failed | Skipped | Subtests |
+|:---|:---|:---:|:---:|:---:|:---:|:---:|
+| **Cybersecurity Engine** | `security_engine/` | 108 | 108 | 0 | 0 | 48 |
+| **Machine Learning Engine** | `ml_engine/tests/` | 47 | 47 | 0 | 0 | 0 |
+| **Unified Engine** | `unified_engine/tests/` | 36 | 36 | 0 | 0 | 10 |
+| **Django REST API** | `backend/accounts/` & `backend/scans/` | 28 | 28 | 0 | 0 | 0 |
+| **Full Combined Regression** | All Modules (`pytest -q`) | **219** | **219** | **0** | **0** | **58** |
 
 ---
 
-## 9. End-to-End Validation Examples
+## 12. End-to-End Validation Examples
 
 ```python
 from unified_engine.detector import scan_url

@@ -11,6 +11,7 @@ env/
 !.env.example
 
 # Django
+*.sqlite3
 db.sqlite3
 staticfiles/
 
