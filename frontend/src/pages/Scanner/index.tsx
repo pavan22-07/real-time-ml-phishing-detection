@@ -57,8 +57,11 @@ export default function ScannerPage() {
         } else {
           setErrorMsg("Scan failed. Please verify the URL structure.");
         }
+      } else if (axiosErr.code === "ECONNABORTED") {
+        setErrorMsg("Scan request timed out. The URL evaluation engine took longer than expected.");
       } else {
-        setErrorMsg("Network error connecting to the Unified Scanning Engine.");
+        const targetUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
+        setErrorMsg(`Network error connecting to the Unified Scanning Engine at ${targetUrl}. Please verify your backend server is running.`);
       }
     } finally {
       setIsScanning(false);

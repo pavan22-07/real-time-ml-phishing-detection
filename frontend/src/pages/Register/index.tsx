@@ -90,7 +90,8 @@ export default function RegisterPage() {
           setErrorMsg("Registration failed. Please review your input.");
         }
       } else {
-        setErrorMsg("Unable to reach the registration service. Please verify your backend server.");
+        const targetUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
+        setErrorMsg(`Unable to reach the registration service at ${targetUrl}. Please verify your backend server is running.`);
       }
     } finally {
       setIsSubmitting(false);

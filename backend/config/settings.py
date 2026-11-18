@@ -35,7 +35,7 @@ DEBUG = os.environ.get("DEBUG", "False").strip().lower() in ("true", "1", "t", "
 
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,testserver").split(",")
+    for host in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,testserver,[::1]").split(",")
     if host.strip()
 ]
 
@@ -184,6 +184,13 @@ SIMPLE_JWT = {
 }
 
 # CORS Configuration
-raw_cors = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+raw_cors = os.environ.get(
+    "CORS_ALLOWED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3001,http://127.0.0.1:3001",
+)
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in raw_cors.split(",") if origin.strip()]
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
+]
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_PRIVATE_NETWORK = True

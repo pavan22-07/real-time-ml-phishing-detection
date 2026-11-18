@@ -65,7 +65,8 @@ export default function LoginPage() {
           setErrorMsg("Invalid username or password. Please try again.");
         }
       } else {
-        setErrorMsg("Unable to connect to the authentication server. Please check your backend connection.");
+        const targetUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
+        setErrorMsg(`Unable to connect to the authentication server at ${targetUrl}. Please verify your backend server is running.`);
       }
     } finally {
       setIsSubmitting(false);
