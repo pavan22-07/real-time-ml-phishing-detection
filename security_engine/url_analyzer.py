@@ -175,17 +175,51 @@ def analyze_url(url):
     except Exception as exc:
         raise ValueError(f"Malformed URL: {exc}") from exc
 
-    hostname = parsed.hostname
+    raw_hostname = parsed.hostname
+    has_trailing_dot = bool(raw_hostname and raw_hostname.endswith("."))
+    hostname = raw_hostname.rstrip(".").lower() if raw_hostname else None
+
     has_url_credentials = (
         parsed.username is not None
         or parsed.password is not None
+        or (parsed.netloc and "@" in parsed.netloc)
+    )
+
+    port = parsed.port
+    scheme_lower = (parsed.scheme or "").lower()
+    has_unusual_port = bool(
+        port is not None
+        and not (
+            (scheme_lower == "http" and port == 80)
+            or (scheme_lower == "https" and port == 443)
+        )
+    )
+
+    SUSPICIOUS_EXTENSIONS = (
+        ".exe", ".scr", ".bat", ".cmd", ".msi", ".apk",
+        ".vbs", ".ps1", ".hta", ".iso", ".jar", ".zip", ".rar", ".7z"
+    )
+    path_lower = parsed.path.lower() if parsed.path else ""
+    has_suspicious_extension = any(
+        path_lower.endswith(ext) or f"{ext}?" in clean_url.lower()
+        for ext in SUSPICIOUS_EXTENSIONS
     )
 
     try:
-        ipaddress.ip_address(hostname)
-        has_ip = True
+        parsed_ip = ipaddress.ip_address(hostname) if hostname else None
+        has_ip = parsed_ip is not None
+        has_private_ip = bool(
+            has_ip and (
+                parsed_ip.is_private
+                or parsed_ip.is_loopback
+                or parsed_ip.is_link_local
+                or parsed_ip.is_reserved
+                or not parsed_ip.is_global
+            )
+        )
     except (ValueError, TypeError):
         has_ip = False
+        has_private_ip = False
 
     if hostname and not has_ip:
         domain_info = _extractor(hostname)
@@ -195,7 +229,7 @@ def analyze_url(url):
             registered_domain = f"{domain_info.domain}.{domain_info.suffix}"
         else:
             # Fallback for reserved/private TLDs not in PSL snapshot (e.g. .test, .example, .local)
-            parts = hostname.rstrip(".").split(".")
+            parts = hostname.split(".")
             if len(parts) >= 2:
                 registered_domain = f"{parts[-2]}.{parts[-1]}"
                 subdomain = ".".join(parts[:-2])
@@ -216,6 +250,36 @@ def analyze_url(url):
         registered_domain = None
         subdomain_count = 0
         idn_features = analyze_idn(hostname if hostname else None)
+
+    # Credential/payment context is evaluated only in the path and query,
+    # never in the hostname. This is used together with brand impersonation
+    # evidence; by itself it is not sufficient to classify a URL as malicious.
+    path_query_text = unquote(f"{parsed.path}?{parsed.query}").lower()
+    path_words = set(re.findall(r"[a-z0-9]+", path_query_text))
+    path_hyphenated = set(re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)+", path_query_text))
+    all_path_tokens = path_words | path_hyphenated
+
+    STRONG_CREDENTIAL_TERMS = {
+        "password", "passcode", "checkout", "payment", "billing",
+        "wallet", "authentication", "credential", "credentials",
+    }
+    GENERIC_CREDENTIAL_TERMS = {
+        "login", "signin", "verify", "verification", "account",
+        "secure", "update", "confirm", "portal", "profile", "access", "reset"
+    }
+
+    detected_strong = sorted(
+        t for t in all_path_tokens
+        if t in STRONG_CREDENTIAL_TERMS
+        or any(k in t for k in ("password-reset", "reset-password", "credential", "payment", "checkout", "billing", "authentication"))
+    )
+
+    detected_generic = sorted(
+        t for t in all_path_tokens
+        if t in GENERIC_CREDENTIAL_TERMS
+    )
+
+    detected_credential_context = sorted(set(detected_strong) | set(detected_generic))
 
     special_chars = "@-_%?=&"
     special_count = sum(clean_url.count(char) for char in special_chars)
@@ -239,12 +303,18 @@ def analyze_url(url):
 
     return {
         "hostname": hostname,
+        "raw_hostname": raw_hostname,
+        "has_trailing_dot": has_trailing_dot,
         "subdomain": subdomain,
         "registered_domain": registered_domain,
         "subdomain_count": subdomain_count,
         "url_length": len(clean_url),
         "dot_count": parsed.netloc.count("."),
         "has_ip": has_ip,
+        "has_private_ip": has_private_ip,
+        "port": port,
+        "has_unusual_port": has_unusual_port,
+        "has_suspicious_extension": has_suspicious_extension,
         "special_char_count": special_count,
         "uses_https": parsed.scheme == "https",
         "suspicious_keywords": found_keywords,
@@ -254,5 +324,10 @@ def analyze_url(url):
         "encoding_analysis": encoding_features,
         "idn_analysis": idn_features,
         "has_url_credentials": has_url_credentials,
+        "credential_context_terms": detected_credential_context,
+        "strong_credential_terms": detected_strong,
+        "generic_credential_terms": detected_generic,
+        "has_strong_credential_context": bool(detected_strong),
+        "has_credential_context": bool(detected_credential_context),
     }
 

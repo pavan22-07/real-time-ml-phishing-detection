@@ -17,6 +17,17 @@ def determine_decision(risk_assessment, features):
         for finding in detected_findings
     }
 
+    high_confidence_brand_impersonation = any(
+        finding.get("rule") == "BRAND_IMPERSONATION"
+        and finding.get("severity") in {"HIGH", "CRITICAL"}
+        and float(finding.get("confidence", 0) or 0) >= 0.80
+        for finding in detected_findings
+    )
+    brand_credential_attack = (
+        high_confidence_brand_impersonation
+        and "BRAND_CREDENTIAL_CONTEXT" in detected_rules
+    )
+
     reasons = []
 
     # Priority 1: Fresh threat intelligence match
@@ -27,6 +38,12 @@ def determine_decision(risk_assessment, features):
         decision = "BLOCK"
         reasons.append(
             "URL matches a current phishing threat-intelligence indicator"
+        )
+
+    elif brand_credential_attack:
+        decision = "BLOCK"
+        reasons.append(
+            "High-confidence protected-brand impersonation is combined with credential or payment context"
         )
 
     # Priority 2: Numerical risk score
@@ -61,6 +78,12 @@ def determine_decision(risk_assessment, features):
 
     # IP addresses and URL credentials require at least a warning.
     if decision == "ALLOW":
+
+        if "PRIVATE_IP_ADDRESS" in detected_rules:
+            decision = "WARN"
+            reasons.append(
+                "URL targets a private, loopback, link-local, or reserved IP address"
+            )
 
         if "IP_ADDRESS" in detected_rules:
             decision = "WARN"

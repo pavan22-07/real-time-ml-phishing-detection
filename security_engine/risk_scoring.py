@@ -1,13 +1,17 @@
 
 RULE_SCORES = {
     "IP_ADDRESS": 15,
+    "PRIVATE_IP_ADDRESS": 25,
     "AT_SYMBOL": 15,
     "SUSPICIOUS_KEYWORDS": 5,
     "URL_ENCODING": 5,
     "EXCESSIVE_SUBDOMAINS": 5,
     "LONG_URL": 5,
+    "SUSPICIOUS_PORT": 10,
+    "SUSPICIOUS_FILE_EXTENSION": 20,
     "DOMAIN_SIMILARITY": 20,
     "BRAND_IMPERSONATION": 25,
+    "BRAND_CREDENTIAL_CONTEXT": 25,
     "IDN_HOMOGRAPH": 25,
     "REDIRECT_ANALYSIS": 20,
     "THREAT_INTELLIGENCE": 60
@@ -108,9 +112,11 @@ def get_risk_level(score):
         return "LOW"
 
 
-def get_security_action(risk_level, confirmed_threat=False):
+def get_security_action(
+    risk_level, confirmed_threat=False, high_confidence_brand_attack=False
+):
 
-    if confirmed_threat:
+    if confirmed_threat or high_confidence_brand_attack:
         return "BLOCK"
 
     if risk_level == "CRITICAL":
@@ -140,9 +146,26 @@ def assess_risk(findings):
         for finding in findings
     )
 
+    detected_rules = {
+        finding.get("rule")
+        for finding in findings
+        if finding.get("detected")
+    }
+    high_confidence_brand_attack = (
+        "BRAND_IMPERSONATION" in detected_rules
+        and "BRAND_CREDENTIAL_CONTEXT" in detected_rules
+        and any(
+            finding.get("rule") == "BRAND_IMPERSONATION"
+            and finding.get("detected")
+            and float(finding.get("confidence", 0) or 0) >= 0.80
+            for finding in findings
+        )
+    )
+
     action = get_security_action(
         level,
-        confirmed_threat=confirmed_threat
+        confirmed_threat=confirmed_threat,
+        high_confidence_brand_attack=high_confidence_brand_attack
     )
 
     detected_findings = [
@@ -156,6 +179,7 @@ def assess_risk(findings):
         "risk_level": level,
         "action": action,
         "confirmed_threat": confirmed_threat,
+        "high_confidence_brand_attack": high_confidence_brand_attack,
         "findings_count": len(detected_findings),
         "findings": detected_findings,
         "score_breakdown": scoring["score_breakdown"],

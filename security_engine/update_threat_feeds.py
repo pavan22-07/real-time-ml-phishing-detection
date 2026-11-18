@@ -11,13 +11,15 @@ if __package__:
     from .threat_intel import (
         FEED_DIR,
         OPENPHISH_FILE,
-        METADATA_FILE
+        METADATA_FILE,
+        normalize_url
     )
 else:
     from threat_intel import (
         FEED_DIR,
         OPENPHISH_FILE,
-        METADATA_FILE
+        METADATA_FILE,
+        normalize_url
     )
 
 
@@ -60,26 +62,22 @@ def update_openphish_feed():
 
         text = content.decode("utf-8-sig")
 
-        valid_urls = []
+        valid_urls = set()
 
         for line in text.splitlines():
-
             line = line.strip()
-
             if not line:
                 continue
-
-            if not line.startswith(("http://", "https://")):
-                continue
-
-            valid_urls.append(line)
+            normalized = normalize_url(line)
+            if normalized:
+                valid_urls.add(normalized)
 
         # Avoid replacing a previously working feed with empty or
         # obviously invalid data.
         if not valid_urls:
             raise ValueError("Downloaded feed contains no valid URLs")
 
-        unique_urls = sorted(set(valid_urls))
+        unique_urls = sorted(valid_urls)
 
         feed_content = "\n".join(unique_urls) + "\n"
         feed_bytes = feed_content.encode("utf-8")

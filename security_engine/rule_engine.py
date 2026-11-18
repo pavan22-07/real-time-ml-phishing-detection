@@ -1,4 +1,5 @@
 
+import re
 from difflib import SequenceMatcher
 
 if __package__:
@@ -14,6 +15,19 @@ PROTECTED_DOMAINS = [
     "amazon.com",
     "apple.com"
 ]
+
+CONFUSABLE_MAP = {
+    "а": "a", "е": "e", "о": "o",
+    "р": "p", "с": "c", "у": "y",
+    "х": "x", "і": "i", "ј": "j",
+    "ѕ": "s", "ӏ": "l",
+    "Α": "A", "Β": "B", "Ε": "E",
+    "Ζ": "Z", "Η": "H", "Ι": "I",
+    "Κ": "K", "Μ": "M", "Ν": "N",
+    "Ο": "O", "Ρ": "P", "Τ": "T",
+    "Χ": "X", "ο": "o", "ρ": "p",
+    "ν": "v", "ι": "i"
+}
 
 
 def make_finding(
@@ -82,6 +96,21 @@ def check_ip_address(features):
     return make_finding(
         "IP_ADDRESS", False,
         "URL does not use an IP address"
+    )
+
+
+def check_private_ip(features):
+
+    if features.get("has_private_ip", False):
+        return make_finding(
+            "PRIVATE_IP_ADDRESS", True,
+            "URL targets a private, loopback, link-local, or reserved IP address",
+            "HIGH", 0.90, "url_structure"
+        )
+
+    return make_finding(
+        "PRIVATE_IP_ADDRESS", False,
+        "No private or reserved IP address detected"
     )
 
 
@@ -229,6 +258,37 @@ def check_url_length(features):
     )
 
 
+def check_suspicious_port(features):
+
+    if features.get("has_unusual_port", False):
+        port = features.get("port")
+        return make_finding(
+            "SUSPICIOUS_PORT", True,
+            f"URL uses a non-standard network port ({port})",
+            "MEDIUM", 0.65, "url_structure"
+        )
+
+    return make_finding(
+        "SUSPICIOUS_PORT", False,
+        "URL uses a standard network port"
+    )
+
+
+def check_suspicious_extension(features):
+
+    if features.get("has_suspicious_extension", False):
+        return make_finding(
+            "SUSPICIOUS_FILE_EXTENSION", True,
+            "URL targets a dangerous or executable file extension",
+            "HIGH", 0.80, "url_structure"
+        )
+
+    return make_finding(
+        "SUSPICIOUS_FILE_EXTENSION", False,
+        "No suspicious file extension detected"
+    )
+
+
 
 def check_domain_similarity(features):
 
@@ -288,7 +348,7 @@ def check_brand_impersonation(features):
 
     registered_domain = (
         features.get("registered_domain") or ""
-    ).lower()
+    ).lower().rstrip(".")
 
     if not hostname or not registered_domain:
         return make_finding(
@@ -307,17 +367,29 @@ def check_brand_impersonation(features):
         )
 
     hostname_labels = hostname.split(".")
+    reg_parts = registered_domain.split(".")
+    subdomain_labels = hostname_labels[:max(0, len(hostname_labels) - len(reg_parts))]
 
-    # Remove the registered domain and public suffix.
-    # Inspect only the labels preceding the registered domain.
-    subdomain_labels = hostname_labels[
-        :len(hostname_labels) - len(registered_domain.split("."))
-    ]
+    # Gather token sets from ASCII hostname labels
+    subdomain_tokens = set()
+    for label in subdomain_labels:
+        for token in re.split(r"[^a-z0-9]+", label):
+            if token:
+                subdomain_tokens.add(token)
 
-    # Inspect individual registered-domain labels and subdomains.
-    candidate_labels = [
-        registered_domain.split(".")[0]
-    ] + subdomain_labels
+    # Also extract tokens from decoded/confusable-normalized Unicode hostname if present
+    idn_info = features.get("idn_analysis") or {}
+    unicode_host = idn_info.get("unicode_hostname")
+    if unicode_host:
+        normalized_uni = "".join(CONFUSABLE_MAP.get(c, c) for c in unicode_host.lower()).rstrip(".")
+        uni_labels = normalized_uni.split(".")
+        uni_sublabels = uni_labels[:max(0, len(uni_labels) - len(reg_parts))]
+        for label in uni_sublabels:
+            for token in re.split(r"[^a-z0-9]+", label):
+                if token:
+                    subdomain_tokens.add(token)
+
+    domain_label = reg_parts[0]
 
     detected_brands = []
 
@@ -325,22 +397,31 @@ def check_brand_impersonation(features):
 
         brand = protected.split(".")[0]
 
-        # Exact brand token in a subdomain, e.g.
-        # paypal.com.evil-site.com
-        if any(
-            brand in label.split("-")
-            for label in subdomain_labels
-        ):
+        # 1. Exact brand token in a subdomain of an unrelated domain (e.g. paypal.com.evil-site.com, secure-paypal.evil.com)
+        if brand in subdomain_tokens:
             detected_brands.append(brand)
             continue
 
-        # Similarity is evaluated only against the actual
-        # registered-domain label, never arbitrary URL text.
-        domain_label = registered_domain.split(".")[0]
+        # Check numeric lookalike normalized tokens in subdomains (e.g. paypa1.evil.com)
+        if any(normalize_brand_candidate(tok) == brand for tok in subdomain_tokens):
+            detected_brands.append(brand)
+            continue
 
+        # Similarity on subdomain tokens
+        if any(get_brand_similarity(tok, brand) >= 0.85 for tok in subdomain_tokens if len(tok) >= 4):
+            detected_brands.append(brand)
+            continue
+
+        # 2. Registered domain label matching
         if domain_label == brand:
             continue
-        if brand in domain_label.split("-"):
+
+        domain_tokens = set(re.split(r"[^a-z0-9]+", domain_label))
+        if brand in domain_tokens:
+            detected_brands.append(brand)
+            continue
+
+        if normalize_brand_candidate(domain_label) == brand:
             detected_brands.append(brand)
             continue
 
@@ -370,6 +451,42 @@ def check_brand_impersonation(features):
         "No known brand impersonation detected"
     )
 
+
+
+def check_brand_credential_context(features):
+    """Detect strong credential/payment context paired with a known-brand spoof.
+
+    This is an evidence-based compound signal:
+    - High-confidence brand impersonation in the hostname is required.
+    - Strong credential or payment evidence (password, password-reset, checkout,
+      payment, billing, authentication, credentials) in URL path/query is required.
+    - Generic words alone (login, verify, account, secure, update, confirm) on a
+      brand spoof DO NOT trigger this compound BLOCK-eligible rule.
+    - Credential words on unrelated domains never trigger this compound rule.
+    - Legitimate brand domains never trigger brand impersonation.
+    """
+    brand_finding = check_brand_impersonation(features)
+    strong_terms = features.get("strong_credential_terms", [])
+
+    if brand_finding.get("detected") and strong_terms:
+        brands = brand_finding.get("reason", "brand impersonation")
+        return make_finding(
+            "BRAND_CREDENTIAL_CONTEXT",
+            True,
+            (
+                f"Strong credential/payment context {strong_terms} appears on a "
+                f"domain impersonating a protected brand: {brands}"
+            ),
+            "CRITICAL",
+            0.90,
+            "brand_identity"
+        )
+
+    return make_finding(
+        "BRAND_CREDENTIAL_CONTEXT",
+        False,
+        "No combined brand-impersonation and strong credential/payment context detected"
+    )
 
 
 def check_idn_homograph(features):
@@ -503,13 +620,17 @@ def evaluate_security_rules(features):
 
     return [
         check_ip_address(features),
+        check_private_ip(features),
         check_at_symbol(features),
         check_suspicious_keywords(features),
         check_url_encoding(features),
         check_subdomains(features),
         check_url_length(features),
+        check_suspicious_port(features),
+        check_suspicious_extension(features),
         check_domain_similarity(features),
         check_brand_impersonation(features),
+        check_brand_credential_context(features),
         check_idn_homograph(features),
         check_redirect_behavior(features),
         check_threat_intelligence_rule(features)

@@ -328,8 +328,22 @@ class UnifiedDetectorTests(unittest.TestCase):
             sec = result["engines"]["security_engine"]
             signals = [s["code"] for s in sec["signals"]]
             self.assertIn("BRAND_IMPERSONATION", signals)
+            self.assertNotIn("BRAND_CREDENTIAL_CONTEXT", signals)
             self.assertEqual(sec["verdict"], "SUSPICIOUS")
+            self.assertEqual(result["final_decision"], "WARN")
             self.assertNotIn("No significant suspicious indicators detected", result["reasons"])
+
+    def test_paypal_subdomain_with_strong_credential_context_blocks(self):
+        import security_engine.threat_intel as ti
+
+        with patch.object(ti, "feed_status", return_value="FRESH"):
+            result = scan_url("https://paypal.com.example.test/login/password-reset")
+            sec = result["engines"]["security_engine"]
+            signals = [s["code"] for s in sec["signals"]]
+            self.assertIn("BRAND_IMPERSONATION", signals)
+            self.assertIn("BRAND_CREDENTIAL_CONTEXT", signals)
+            self.assertEqual(sec["verdict"], "MALICIOUS")
+            self.assertEqual(result["final_decision"], "BLOCK")
 
 
 if __name__ == "__main__":
