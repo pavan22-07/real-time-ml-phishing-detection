@@ -15,6 +15,7 @@ class BrandImpersonationTests(unittest.TestCase):
             ("https://paypal.com.evil-site.com", True),
             ("https://paypa1.com", True),
             ("https://paypal-login.com", True),
+            ("https://paypal.com.example.test/login", True),
             ("https://google.com", False),
             ("https://g00gle.com", True),
         ]
@@ -23,6 +24,18 @@ class BrandImpersonationTests(unittest.TestCase):
                 features = analyze_url(url)
                 result = check_brand_impersonation(features)
                 self.assertEqual(result["detected"], expected_detected, msg=f"Failed for {url}")
+
+
+    def test_paypal_subdomain_impersonation_on_test_tld(self):
+        url = "https://paypal.com.example.test/login"
+        features = analyze_url(url)
+        self.assertEqual(features["registered_domain"], "example.test")
+        self.assertEqual(features["subdomain"], "paypal.com")
+        self.assertEqual(features["subdomain_count"], 2)
+
+        result = check_brand_impersonation(features)
+        self.assertTrue(result["detected"])
+        self.assertIn("paypal", result["reason"])
 
 
 if __name__ == "__main__":

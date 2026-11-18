@@ -308,6 +308,29 @@ class UnifiedDetectorTests(unittest.TestCase):
         self.assertTrue(result["inspect_redirects"])
         self.assertEqual(result["final_decision"], "ALLOW")
 
+    def test_wikipedia_allow_when_threat_intel_healthy(self):
+        import security_engine.threat_intel as ti
+
+        with patch.object(ti, "feed_status", return_value="FRESH"):
+            result = scan_url("https://www.wikipedia.org/")
+            self.assertEqual(result["final_decision"], "ALLOW")
+            self.assertFalse(result["degraded_mode"])
+            self.assertEqual(result["engine_statuses"]["security_engine"], "OK")
+            self.assertEqual(result["engine_statuses"]["ml_engine"], "OK")
+            self.assertIn("No significant suspicious indicators detected", result["reasons"])
+            self.assertNotIn("Security verification is incomplete", result["reasons"])
+
+    def test_paypal_subdomain_impersonation_detected_on_test_tld(self):
+        import security_engine.threat_intel as ti
+
+        with patch.object(ti, "feed_status", return_value="FRESH"):
+            result = scan_url("https://paypal.com.example.test/login")
+            sec = result["engines"]["security_engine"]
+            signals = [s["code"] for s in sec["signals"]]
+            self.assertIn("BRAND_IMPERSONATION", signals)
+            self.assertEqual(sec["verdict"], "SUSPICIOUS")
+            self.assertNotIn("No significant suspicious indicators detected", result["reasons"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

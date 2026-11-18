@@ -181,16 +181,28 @@ def analyze_url(url):
         or parsed.password is not None
     )
 
-    if hostname:
+    try:
+        ipaddress.ip_address(hostname)
+        has_ip = True
+    except (ValueError, TypeError):
+        has_ip = False
+
+    if hostname and not has_ip:
         domain_info = _extractor(hostname)
 
-        subdomain = domain_info.subdomain
+        if domain_info.suffix:
+            subdomain = domain_info.subdomain
+            registered_domain = f"{domain_info.domain}.{domain_info.suffix}"
+        else:
+            # Fallback for reserved/private TLDs not in PSL snapshot (e.g. .test, .example, .local)
+            parts = hostname.rstrip(".").split(".")
+            if len(parts) >= 2:
+                registered_domain = f"{parts[-2]}.{parts[-1]}"
+                subdomain = ".".join(parts[:-2])
+            else:
+                registered_domain = parts[0]
+                subdomain = ""
 
-        registered_domain = (
-            f"{domain_info.domain}.{domain_info.suffix}"
-            if domain_info.suffix
-            else None
-        )
         idn_features = analyze_idn(hostname)
 
         subdomain_count = (
@@ -203,13 +215,7 @@ def analyze_url(url):
         subdomain = ""
         registered_domain = None
         subdomain_count = 0
-        idn_features = analyze_idn(None)
-
-    try:
-        ipaddress.ip_address(hostname)
-        has_ip = True
-    except (ValueError, TypeError):
-        has_ip = False
+        idn_features = analyze_idn(hostname if hostname else None)
 
     special_chars = "@-_%?=&"
     special_count = sum(clean_url.count(char) for char in special_chars)

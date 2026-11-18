@@ -42,9 +42,6 @@ def determine_decision(risk_assessment, features):
 
     else:
         decision = "ALLOW"
-        reasons.append(
-            "No significant suspicious indicators detected"
-        )
 
     # Priority 3: High- and Critical-severity findings
     # A high- or critical-severity finding must never silently result in ALLOW.
@@ -99,6 +96,11 @@ def determine_decision(risk_assessment, features):
         decision = "WARN"
         reasons.append(
             "Security verification is incomplete"
+        )
+
+    if decision == "ALLOW" and not reasons:
+        reasons.append(
+            "No significant suspicious indicators detected"
         )
 
     explanations = [

@@ -81,6 +81,28 @@ class LegitimateURLRegressionTests(unittest.TestCase):
     def test_dataset_contains_expected_number_of_cases(self):
         self.assertEqual(len(self.cases), 15)
 
+    def test_wikipedia_and_popular_domains_receive_allow(self):
+        popular_legitimate_urls = [
+            "https://www.wikipedia.org/",
+            "https://en.wikipedia.org/wiki/Main_Page",
+            "https://www.google.com/",
+            "https://github.com/",
+        ]
+        for url in popular_legitimate_urls:
+            with self.subTest(url=url):
+                result = scan_static_url(url)
+                self.assertEqual(
+                    result["decision"]["decision"],
+                    "ALLOW",
+                    msg=f"Expected ALLOW for {url}, got {result['decision']['decision']}"
+                )
+                self.assertEqual(result["assessment"]["risk_score"], 0)
+                self.assertIn(
+                    "No significant suspicious indicators detected",
+                    result["decision"]["reasons"]
+                )
+                self.assertEqual(result["decision"]["inspection_warnings"], [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
