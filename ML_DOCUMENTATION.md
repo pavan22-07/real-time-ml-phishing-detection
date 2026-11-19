@@ -253,7 +253,7 @@ Two controlled experiments were evaluated strictly on `train.csv` + `val.csv` (`
 | Exp B: Deeper RF (`max_depth=25`, `leaf=1`, `n=200`) | 0.9627 | 0.8905 | 0.9338 | 0.9116 | 0.9917 | 442 / 255 | `0.5040` |
 
 - **Why Baseline RF (`v1.0.0`) Is Retained:** Dropping `is_https` degrades in-distribution validation F1 (`0.8999 → 0.8869`) and increases both false positives (`+58`) and false negatives (`+45`). Increasing `max_depth=25, min_samples_leaf=1` barely moves the probe (`0.5040`) while risking overfitting to training noise and increasing artifact size.
-- **How Dual-Engine Architecture Resolves It:** When evaluated independently by `security_engine` (`scan_static_url`), this exact URL receives **`WARN`** (`SUSPICIOUS_KEYWORDS` with `HIGH` severity for `['login', 'secure', 'account', 'update', 'bank']` in the hostname), while `ml_engine` reports a borderline `0.4285` phishing probability. In the combined Django decision layer, moderate ML suspicion (`0.4285`) + `HIGH`-severity cybersecurity rule findings naturally escalate risk without distorting ML probabilities.
+- **How Dual-Engine Architecture Resolves It:** When evaluated independently by `security_engine` (`scan_static_url`), this exact URL receives **`WARN`** (`SUSPICIOUS_KEYWORDS` with `HIGH` severity for `['login', 'secure', 'account', 'update', 'bank']` in the hostname), while `ml_engine` reports a borderline `0.4285` phishing probability. The current integration keeps ML inference separate from deterministic cybersecurity findings. The unified policy maps an ML-only suspicious prediction to `WARN`; an authoritative cybersecurity `BLOCK` remains `BLOCK` regardless of the ML result. Do not infer the final combined decision from the ML probability alone.
 
 ---
 
@@ -301,26 +301,30 @@ def scan_url_view(url: str):
 
 ---
 
-## 10. Cybersecurity Engine Findings & Offline Dependency Handling
+## 10. Unified Engine Integration & Offline Dependency Handling
 
-### 10.1 Pre-Existing Import Issue in `security_engine/security_engine.py`
-- **Finding:** [`security_engine/security_engine.py`](security_engine/security_engine.py) line 7 executes `from decision_engine import generate_security_report`, and line 28 calls `generate_security_report(url, features, findings)`. However, [`security_engine/decision_engine.py`](security_engine/decision_engine.py) only defines `determine_decision(risk_assessment, features)`. Importing `security_engine` as a wrapper therefore raises `ImportError: cannot import name 'generate_security_report'`.
-- **Root Cause:** As shown in [`security_engine/security_validation_test.py`](security_engine/security_validation_test.py) (`scan_static_url`), the working pipeline calls `run_security_rules(features)` → `assess_risk(findings)` → `determine_decision(assessment, features)` directly; `security_engine.py` references an older or unimplemented helper name.
-- **Proposed Correction (Not Applied — Awaiting Team Approval):** Keep `security_engine/` untouched per repository rules. When the cybersecurity team is ready to patch `security_engine/security_engine.py`, replace `generate_security_report` with `assess_risk` + `determine_decision`:
-  ```python
-  assessment = assess_risk(findings)
-  decision = determine_decision(assessment, features)
-  ```
+### 10.1 Current integration path
 
-### 10.2 Offline Dependency Handling
-- **`ml_engine` (100% Offline Inference & Training):** `ml_engine/feature_extraction.py` configures `tldextract.TLDExtract(cache_dir=str(TLD_CACHE_DIR), fallback_to_snapshot=True, suffix_list_urls=None)` so zero network calls occur during feature extraction, training, or prediction. Network access is only required if re-downloading the raw dataset from Mendeley Data via `python -m ml_engine.dataset_loader`.
-- **`security_engine` (Requires `TLDEXTRACT_CACHE` Offline):** `security_engine/url_analyzer.py` calls default `tldextract.extract(hostname)`, which attempts to lock Python's `site-packages/tldextract/.suffix_cache` and fetch the Public Suffix List if uncached. When running `security_engine` offline, set:
-  ```powershell
-  $env:TLDEXTRACT_CACHE="data/.tld_cache"
-  ```
-  Additionally, `security_engine/redirect_analyzer.py` and `security_engine/update_threat_feeds.py` perform live HTTP requests by design, while `security_engine/threat_intel.py` reads the local `data/threat_feeds/openphish.txt` file offline.
+The current request path is:
 
----
+1. `backend/scans/services.py` imports and calls `unified_engine.detector.scan_url()`.
+2. `unified_engine/detector.py` validates the submitted URL, calls both engine adapters, and passes their normalized results to the combined policy.
+3. `unified_engine/adapters.py` calls `security_engine.analyze_url_security()` and `ml_engine.predict.predict_url()` independently, then maps their outputs into the shared `EngineResult` contract.
+4. `unified_engine/policy.py` produces the authoritative combined decision.
+5. The Django service persists the decision, engine summaries, reasons, warnings, errors, and complete result in `ScanHistory`.
+
+The cybersecurity verdict mapping is `ALLOW → BENIGN`, `WARN → SUSPICIOUS`, and `BLOCK → MALICIOUS`. The unified policy preserves a cybersecurity `BLOCK`; ML alone can raise `WARN` but cannot trigger automatic `BLOCK`.
+
+### 10.2 Prediction contract at the unified boundary
+
+The ML adapter expects a successful `predict_url()` result with a recognized `prediction` (`PHISHING` or `LEGITIMATE`) and `phishing_probability` in `[0, 1]`. The normalized result stores this as `raw_phishing_probability` and explicitly sets `is_calibrated=False`. A missing model, malformed probability, or inference exception becomes an engine error result rather than a legitimate classification.
+
+### 10.3 Offline dependency handling
+
+- **ML feature extraction and inference:** `ml_engine/feature_extraction.py` uses an offline-configured TLD extractor with a bundled snapshot. Network access is required for the first raw dataset download only, if the dataset is not already available.
+- **Cybersecurity TLD cache:** `unified_engine/adapters.py` configures `TLDEXTRACT_CACHE` before importing the security engine and ensures the cache directory exists. The default cache location is `data/.tld_cache/`.
+- **Threat intelligence:** `security_engine/threat_intel.py` reads the local feed. Freshness and availability states are surfaced as inspection status/warnings; unavailable or stale intelligence must not be represented as proof that a URL is safe.
+- **Redirect inspection:** disabled by default. Enabling it invokes the separate SSRF-hardened redirect analyzer and requires network access.
 
 ## 11. Known Limitations & Repository Hygiene
 

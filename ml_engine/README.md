@@ -6,7 +6,7 @@ Designed to run alongside (without modifying) `security_engine/` and expose a cl
 
 ---
 
-## 1. Architecture Overview
+Full ML methodology, dataset provenance, feature definitions and measured evaluation results are documented in the repository-root [ML_DOCUMENTATION.md](../ML_DOCUMENTATION.md).\n\n## 1. Architecture Overview
 
 ```
 ml_engine/
@@ -117,3 +117,8 @@ result = predict_url("https://example.com")
 > **Note:** `predict_url()` intentionally never outputs `ALLOW`, `WARN`, or `BLOCK`. Final policy decisions belong in the separate Django combined-decision layer integrating `security_engine` and `ml_engine`.
 
 For full methodology, feature definitions, investigation reports, and integration contracts, see [`ML_DOCUMENTATION.md`](../ML_DOCUMENTATION.md).
+
+
+## 5. Prediction Interpretation
+
+The `phishing_probability` emitted by the current Random Forest model is a raw model probability and is **not calibrated**. It must not be described as calibrated confidence. The ML module returns a prediction and probability; the unified policy, not the ML model, determines `ALLOW`, `WARN`, or `BLOCK`. ML alone must never trigger automatic `BLOCK`.

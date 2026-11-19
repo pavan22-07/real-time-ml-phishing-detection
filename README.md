@@ -7,6 +7,15 @@ Active Branch: `ml-module-development`
 
 ---
 
+## Documentation
+
+- [ML module documentation](ML_DOCUMENTATION.md)
+- [ML engine setup and usage](ml_engine/README.md)
+- [System architecture](docs/ARCHITECTURE.md)
+- [Cybersecurity engine](docs/SECURITY_ENGINE.md)
+- [Backend API reference](docs/API_DOCUMENTATION.md)
+- [Testing and regression guide](docs/TESTING.md)
+
 ## 1. System Architecture
 
 The platform operates as a dual-engine architecture coordinated by a unified decision layer. The deterministic **Cybersecurity Engine** and the statistical **Machine Learning Engine** evaluate submitted URLs independently without shared mutable state or mutual dependencies.
@@ -504,36 +513,22 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ## 11. Automated Testing
 
-All tests run completely offline without external network dependencies.
+Run the test suites from the repository root. The commands below execute the tests present in the checked-out branch; test counts can change as regression coverage evolves.
 
 ```powershell
-# 1. Run all tests via pytest (Full Suite: 219 tests)
+# Full Python test suite
 python -m pytest -q
 
-# 2. Run Django REST API test suite separately (28 tests)
+# Django API tests
 python backend/manage.py test accounts scans -v 2
 
-# 3. Run Cybersecurity Engine tests (108 tests)
-pytest security_engine
-
-# 4. Run Machine Learning Engine tests (47 tests)
-pytest ml_engine/tests
-
-# 5. Run Unified Engine tests (36 tests)
-pytest unified_engine/tests
+# Individual engine suites
+python -m pytest security_engine
+python -m pytest ml_engine/tests
+python -m pytest unified_engine/tests
 ```
 
-### Measured Test Suite Summary
-
-| Test Suite | Path | Tests Collected | Passed | Failed | Skipped | Subtests |
-|:---|:---|:---:|:---:|:---:|:---:|:---:|
-| **Cybersecurity Engine** | `security_engine/` | 108 | 108 | 0 | 0 | 48 |
-| **Machine Learning Engine** | `ml_engine/tests/` | 47 | 47 | 0 | 0 | 0 |
-| **Unified Engine** | `unified_engine/tests/` | 36 | 36 | 0 | 0 | 10 |
-| **Django REST API** | `backend/accounts/` & `backend/scans/` | 28 | 28 | 0 | 0 | 0 |
-| **Full Combined Regression** | All Modules (`pytest -q`) | **219** | **219** | **0** | **0** | **58** |
-
----
+The project includes regression coverage for URL parsing, brand impersonation, strong credential context, adapter contracts, combined-policy precedence, and Django scan API behavior. Use the test runner output from the current checkout as the authoritative test count; do not rely on historical counts copied into older reports.
 
 ## 12. End-to-End Validation Examples
 
@@ -547,8 +542,9 @@ result = scan_url("https://www.wikipedia.org/")
 
 # Example 2: Brand impersonation phishing URL
 result = scan_url("https://paypal.com.evil-site.com/login")
-# final_decision: "WARN"
-# risk_score: 23.0, raw_phishing_probability: 0.7315
+# final_decision depends on the deterministic findings and combined policy.
+# A confirmed high-confidence protected-brand + strong credential-context
+# finding produces cybersecurity BLOCK; ML cannot downgrade that BLOCK.
 
 # Example 3: IP-based login URL
 result = scan_url("http://192.0.2.10/login")
@@ -563,8 +559,19 @@ result = scan_url("http://351312.cc/")
 
 ---
 
-## 10. Known Limitations
+## 13. Known Limitations
 
 1. **Airgapped Threat Feeds:** The threat intelligence feed must be updated periodically (`python -m security_engine.update_threat_feeds`). In environments without scheduled updates, feeds older than 24 hours transition to `STALE`, causing benign URLs to escalate to `WARN` (fail-safe by design).
 2. **Uncalibrated ML Probabilities:** ML probabilities are raw Random Forest tree-vote fractions (`is_calibrated=False`). They provide relative statistical ranking rather than true posterior probabilities.
 3. **Live Redirects in Sandbox/Airgap:** Redirect analysis requires outbound network connectivity and is disabled by default (`inspect_redirects=False`). When enabled, non-public IPs are safely rejected.
+
+
+## 14. Current Integration Notes
+
+- The Django scan service delegates to `unified_engine.detector.scan_url()`; it does not implement a second decision policy.
+- `unified_engine/adapters.py` normalizes the independent cybersecurity and ML results into a shared engine-result contract.
+- `unified_engine/policy.py` owns the combined `ALLOW`, `WARN`, `BLOCK`, and `ERROR` decision.
+- A cybersecurity `BLOCK` backed by a `MALICIOUS` verdict is authoritative and cannot be downgraded by an ML benign result or ML outage.
+- ML-only phishing predictions escalate to `WARN`; ML alone never causes automatic `BLOCK`.
+- The API persists the unified decision, per-engine summaries, reasons, warnings, and complete result in `ScanHistory`.
+- During local development, start Django without `--noreload` so code changes are reloaded. The Vite development server proxies `/api` to Django at `127.0.0.1:8000` in the documented local setup.
