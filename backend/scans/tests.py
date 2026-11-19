@@ -363,3 +363,97 @@ class ScanAPITests(APITestCase):
         engines_dict = record.complete_result.get("engines", {})
         self.assertTrue("security_engine" in engines_dict or "cybersecurity" in engines_dict)
         self.assertTrue("ml_engine" in engines_dict or "machine_learning" in engines_dict)
+
+    def test_paypal_brand_credential_compound_blocks_in_live_pipeline(self):
+        """
+        Regression test: https://paypal.com.example.test/login/password-reset
+        must trigger BRAND_IMPERSONATION + BRAND_CREDENTIAL_CONTEXT compound BLOCK
+        through the live Django scan API and persist correctly.
+        """
+        self.client.force_authenticate(user=self.user1)
+
+        failing_url = "https://paypal.com.example.test/login/password-reset"
+        response = self.client.post(self.scan_url_endpoint, {"url": failing_url}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["final_decision"], "BLOCK")
+        self.assertEqual(response.data["cybersecurity"]["verdict"], "MALICIOUS")
+        self.assertEqual(response.data["cybersecurity"]["risk_score"], 37)
+        self.assertIn(
+            "Cybersecurity engine issued an authoritative BLOCK verdict.",
+            response.data["reasons"]
+        )
+        self.assertIn(
+            "High-confidence protected-brand impersonation is combined with credential or payment context",
+            response.data["reasons"]
+        )
+
+        # Verify DB persistence
+        record = ScanHistory.objects.get(id=response.data["id"])
+        self.assertEqual(record.user, self.user1)
+        self.assertEqual(record.final_decision, "BLOCK")
+        self.assertEqual(record.cybersecurity_verdict, "MALICIOUS")
+        self.assertEqual(record.cybersecurity_risk_score, 37)
+
+    def test_paypal_brand_credential_compound_schemeless_url_blocks_in_live_pipeline(self):
+        """
+        Regression test: schemeless 'paypal.com.example.test/login/password-reset'
+        must also trigger compound BLOCK rather than degrading to BENIGN/WARN.
+        """
+        self.client.force_authenticate(user=self.user1)
+
+        schemeless_url = "paypal.com.example.test/login/password-reset"
+        response = self.client.post(self.scan_url_endpoint, {"url": schemeless_url}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["final_decision"], "BLOCK")
+        self.assertEqual(response.data["cybersecurity"]["verdict"], "MALICIOUS")
+        self.assertEqual(response.data["cybersecurity"]["risk_score"], 37)
+
+        record = ScanHistory.objects.get(id=response.data["id"])
+        self.assertEqual(record.final_decision, "BLOCK")
+        self.assertEqual(record.cybersecurity_verdict, "MALICIOUS")
+        self.assertEqual(record.cybersecurity_risk_score, 37)
+
+    def test_paypal_subdomain_account_warns_not_block(self):
+        """
+        Regression test: https://paypal.com.example.test/account
+        Brand impersonation without strong credential context must return WARN, not BLOCK.
+        """
+        self.client.force_authenticate(user=self.user1)
+
+        url = "https://paypal.com.example.test/account"
+        response = self.client.post(self.scan_url_endpoint, {"url": url}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["final_decision"], "WARN")
+        self.assertNotEqual(response.data["final_decision"], "BLOCK")
+        self.assertEqual(response.data["cybersecurity"]["verdict"], "SUSPICIOUS")
+
+    def test_legitimate_paypal_login_never_blocks(self):
+        """
+        Regression test: https://www.paypal.com/login
+        Legitimate brand domain must never trigger brand impersonation or BLOCK.
+        """
+        self.client.force_authenticate(user=self.user1)
+
+        url = "https://www.paypal.com/login"
+        response = self.client.post(self.scan_url_endpoint, {"url": url}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(response.data["final_decision"], "BLOCK")
+        self.assertNotEqual(response.data["cybersecurity"]["verdict"], "MALICIOUS")
+
+    def test_unrelated_domain_login_password_reset_not_block(self):
+        """
+        Regression test: example.test/login/password-reset
+        Credential words on an unrelated domain without brand impersonation must not compound BLOCK.
+        """
+        self.client.force_authenticate(user=self.user1)
+
+        url = "example.test/login/password-reset"
+        response = self.client.post(self.scan_url_endpoint, {"url": url}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(response.data["final_decision"], "BLOCK")
+        self.assertNotEqual(response.data["cybersecurity"]["verdict"], "MALICIOUS")

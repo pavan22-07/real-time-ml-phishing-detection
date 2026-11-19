@@ -1,4 +1,6 @@
 
+import re
+
 if __package__:
     from .url_analyzer import analyze_url
     from .rule_engine import run_security_rules
@@ -38,8 +40,14 @@ def analyze_url_security(url, inspect_redirects=False):
     features = analyze_url(url)
 
     # Local threat-intelligence lookup
+    threat_url = url
+    if isinstance(url, str):
+        clean_u = url.strip()
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", clean_u) and ("." in clean_u or ":" in clean_u):
+            threat_url = "https://" + clean_u
+
     features["threat_intelligence"] = (
-        check_threat_intelligence(url)
+        check_threat_intelligence(threat_url)
     )
 
     # Optional network-based redirect inspection

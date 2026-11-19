@@ -170,8 +170,12 @@ def analyze_url(url):
         raise ValueError("URL cannot be empty or whitespace")
 
     encoding_features = analyze_encoding(clean_url)
+    parse_target = clean_url
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", clean_url) and not clean_url.startswith("//"):
+        parse_target = "//" + clean_url
+
     try:
-        parsed = urlparse(clean_url)
+        parsed = urlparse(parse_target)
     except Exception as exc:
         raise ValueError(f"Malformed URL: {exc}") from exc
 
